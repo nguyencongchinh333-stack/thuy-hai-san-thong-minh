@@ -2,335 +2,254 @@
 
 ---
 
-## 2.1 Sơ Đồ Tổng Quan
+## 2.1 Sơ Đồ Tổng Quan Hệ Thống
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                      NEXTFARM PLATFORM                            │
-│                   IoT → Aquaculture Module                        │
-└───────────────────────────┬──────────────────────────────────────┘
-                            │ MQTT / WiFi (broker.hosco.com.vn:1883)
-               ┌────────────┴────────────┐
-               │     CB2S (BK7231N)      │
-               │   Tuya SDK compatible   │
-               │  Tín hiệu I/O: 3.3V    │
-               └────────────┬────────────┘
-                            │ I2C Bus (SDA GPIO6 / SCL GPIO7)
-            ┌───────────────┼──────────────────────┐
-            │               │                      │
-     ┌──────┴──────┐  ┌─────┴──────┐    ┌──────────┴─────────┐
-     │ MCP23017 #1 │  │ MCP23017 #2│    │  Cảm biến I2C Bus  │
-     │   (0x20)    │  │   (0x21)   │    │  Atlas EZO ×4       │
-     │  Kênh 0–15  │  │  Kênh 16–30│    │  VL53L0X, MS5837   │
-     └──────┬──────┘  └─────┬──────┘    │  ADS1115, OLED     │
-            │               │           └────────────────────┘
-     ┌──────┴──────────┐  ┌─┴────────────────────┐
-     │  Relay Board    │  │    Relay Board         │
-     │  1+2 (ch 0–15) │  │    3+4 (ch 16–30)     │
-     └────────┬────────┘  └───────────┬────────────┘
-              │                       │
-   ┌──────────┴──────────┐  ┌─────────┴───────────┐
-   │   220VAC Tải        │  │  24VAC + 220VAC      │
-   │ Quạt sục khí (K1-4) │  │  Van ao lắng (K16-19)│
-   │ Blower (K5-6)       │  │  Máy cho ăn (K20-23) │
-   │ Bơm cấp (K0)        │  │  Van xả đáy (K24-25) │
-   │ UV + Sưởi (K11-12)  │  │  Van thải/O₂ (K27-29)│
-   └─────────────────────┘  └─────────────────────┘
+│                    NEXTFARM PLATFORM                              │
+│              IoT → Aquaculture (broker.hosco.com.vn)             │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ WiFi MQTT Port 1883
+                             │
+               ┌─────────────┴──────────────┐
+               │       CB2S (BK7231N)        │
+               │    Chip Tuya, 3.3V I/O      │
+               │  ID: Mã khách (VD: TOM_001) │
+               └──────┬──────────────────────┘
+                      │ I2C Bus (SDA=GPIO0, SCL=GPIO1)
+         ┌────────────┼────────────────────────────────────┐
+         │            │            │           │            │
+    ┌────┴────┐  ┌────┴────┐  ┌───┴────┐  ┌──┴─────┐  ┌──┴──────┐
+    │MCP23017 │  │MCP23017 │  │ADS1115 │  │Atlas   │  │ VL53L0X │
+    │  0x20   │  │  0x21   │  │  0x48  │  │EZO ×4  │  │ MS5837  │
+    │K0–K15   │  │K16–K31  │  │Turbidity│  │DO/pH/  │  │OLED     │
+    └────┬────┘  └────┬────┘  │Analog  │  │EC/ORP  │  └─────────┘
+         │            │       └────────┘  └────────┘
+   ┌─────┴──────┐  ┌──┴──────────────┐
+   │Relay Board │  │Relay Board       │
+   │  1+2       │  │  3+4             │
+   │ K0–K15     │  │ K16–K31          │
+   └─────┬──────┘  └──┬──────────────┘
+         │             │
+   220VAC + 24VAC   220VAC + 24VAC
+         │             │
+   ┌─────┴──────┐  ┌───┴──────────────┐
+   │K0  Bơm cấp │  │K16-19 Van ao lắng│
+   │K1-4 Quạt  │  │K20-23 Máy cho ăn │
+   │K5-6 Blower│  │K24-25 Van xả đáy │
+   │K7  Bơm xả │  │K28   Bơm DP      │
+   │K9  Bơm vôi│  │K29   Van O₂      │
+   │K11 Đèn UV │  └──────────────────┘
+   └────────────┘
 ```
 
 ---
 
-## 2.2 Sơ Đồ Chi Tiết Phần Cứng
+## 2.2 Sơ Đồ Khối Phần Cứng Chi Tiết
 
 ```
-                  ┌─────────────────────────────────────────────┐
-                  │              CB2S (BK7231N)                  │
-                  │                                             │
-  SDA (GPIO6) ───┤                                   GPIO8  ├─── DS18B20 ×3 (1-Wire)
-  SCL (GPIO7) ───┤  I2C Master                       GPIO14 ├─── YF-B10 Flow #1
-  3.3V ──────────┤  (4.7kΩ pull-up)                  GPIO26 ├─── YF-B10 Flow #2
-  GND ───────────┤                                   GPIO5  ├─── UART TX
-                  │                                   GPIO4  ├─── UART RX (debug)
-                  └─────────────────────────────────────────────┘
-                         │ I2C
-          ┌──────────────┼──────────────────────────────┐
-          │              │              │                │
-   ┌──────┴──┐    ┌──────┴──┐    ┌─────┴──┐    ┌───────┴──┐
-   │MCP23017 │    │MCP23017 │    │ADS1115 │    │  OLED    │
-   │ #1 0x20 │    │ #2 0x21 │    │ 0x48   │    │SH1106    │
-   └──────┬──┘    └──────┬──┘    │AIN0:   │    │ 0x3C     │
-          │              │       │Turbidity│    └──────────┘
-    CH0–CH15        CH16–CH30    └────────┘
-          │              │
-   ┌──────┴──┐    ┌──────┴──┐
-   │ Atlas   │    │EZO-DO   │    EZO-DO  → 0x61
-   │ EZO I2C │    │EZO-ORP  │    EZO-ORP → 0x62
-   │ Sensors │    │EZO-pH   │    EZO-pH  → 0x63
-   └─────────┘    │EZO-EC   │    EZO-EC  → 0x64
-                  └─────────┘
-```
-
----
-
-## 2.3 Luồng Dữ Liệu MQTT
-
-```
-NextFarm App / Platform
-  │ Subscribe: aqua/{farm_id}/status      ← Trạng thái tổng
-  │ Subscribe: aqua/{farm_id}/sensor      ← DO, pH, EC, ORP, T°, mực nước
-  │ Subscribe: aqua/{farm_id}/alert       ← CẢNH BÁO DO thấp, pH bất thường
-  │ Subscribe: aqua/{farm_id}/lcd         ← Nội dung màn hình OLED
-  │ Subscribe: aqua/{farm_id}/feeding     ← Trạng thái máy cho ăn
-  │
-  │ Publish: aqua/{farm_id}/relay/{k}/set ← Điều khiển relay đơn lẻ
-  │ Publish: aqua/{farm_id}/mode/set      ← AUTO | MANUAL | EMERGENCY
-  │ Publish: aqua/{farm_id}/threshold/set ← Cài đặt ngưỡng DO, pH, EC
-  │ Publish: aqua/{farm_id}/feed/set      ← Lịch cho ăn, khẩu phần
-  │ Publish: aqua/{farm_id}/water/set     ← Lịch thay nước
-  ▼
-CB2S Firmware → MCP23017 → Relay Board → Thiết bị ao
-```
-
-Broker: **broker.hosco.com.vn:1883** — QoS 1 cho alert, QoS 0 cho sensor.
-
----
-
-## 2.4 Logic Điều Khiển DO 6 Cấp
-
-### Ngưỡng và Hành Động
-
-| Cấp | DO (mg/L) | Quạt sục khí | Blower | Bơm cấp | Mức độ |
-|:---:|:---------:|:------------:|:------:|:--------:|:------:|
-| 5 | > 6.0 | Tắt hết | Tắt | Bình thường | Tốt |
-| 4 | 5.0 – 6.0 | K1 (1 quạt) | Tắt | Bình thường | Ổn |
-| 3 | 4.0 – 5.0 | K1 + K2 (2 quạt) | K5 | Bình thường | Cần theo dõi |
-| 2 | 3.0 – 4.0 | K1+K2+K3+K4 (4 quạt) | K5+K6 | Tăng lưu lượng | CẢNH BÁO |
-| 1 | 2.0 – 3.0 | TẤT CẢ K1–K4 + Blower | K5+K6 | Tối đa | NGUY HIỂM |
-| 0 | < 2.0 | TẤT CẢ + Khẩn cấp | K5+K6 | Tối đa + K29 O₂ | KHẨN CẤP |
-
-### Sơ Đồ Luồng Logic DO
-
-```
-Đọc EZO-DO (mỗi 30 giây)
-           │
-    DO > 6.0 mg/L? ──YES──► Cấp 5: Tắt quạt nếu đang chạy
-           │ NO
-    DO > 5.0 mg/L? ──YES──► Cấp 4: Bật K1 (1 quạt)
-           │ NO
-    DO > 4.0 mg/L? ──YES──► Cấp 3: Bật K1+K2, K5
-           │ NO                       MQTT alert: "DO_THEO_DOI"
-    DO > 3.0 mg/L? ──YES──► Cấp 2: Bật K1–K4, K5+K6
-           │ NO                       MQTT alert: "DO_CANH_BAO"
-    DO > 2.0 mg/L? ──YES──► Cấp 1: TẤT CẢ quạt + blower
-           │ NO                       MQTT alert: "DO_NGUY_HIEM"
-           ▼                          SMS + App notification
-    Cấp 0: KHẨN CẤP
-           │     → Bật K1–K4, K5–K6, K29 (van O₂)
-           │     → MQTT alert: "DO_KHAN_CAP"
-           │     → OLED nhấp nháy đỏ
-           └──── → Còi cảnh báo (nếu có)
-```
-
-### Hysteresis Chống Dao Động
-
-```
-Ví dụ ngưỡng cấp 3↔4 (DO = 5.0 mg/L):
-  - Chuyển xuống cấp 3 khi DO < 5.0 - 0.2 = 4.8 mg/L
-  - Chuyển lên cấp 4 khi DO > 5.0 + 0.2 = 5.2 mg/L
-  - Tránh relay đóng/mở liên tục gây hỏng thiết bị
+220VAC ─── [CB 2P 16A ELCB] ─────────────────────────────────────────
+                │
+    ┌───────────┼──────────────────────────────────────┐
+    │           │                                       │
+[CB 1P 20A]  [Mean Well HDR-60-5]              [Biến áp 24VAC]
+(quạt+blower)  5VDC / 12A                         50VA
+    │           │                                   │
+[CB 1P 10A]  ┌─┴────────────────┐              Van ao lắng
+(bơm+UV+đèn) │  5V Rail         │              K16–K19
+    │        ├──────────────────┤              (24VAC NC)
+[CB 1P 6A]   │  CB2S (3.3V reg) │
+(cho ăn+van) │  MCP23017 ×2     │
+    │        │  Relay coil ×32  │
+    │        └──────────────────┘
+    │                │
+    │         [AMS1117-3.3]  ← 5V → 3.3V
+    │                │
+    │         3.3V Sensor Rail:
+    │         ├── Atlas EZO-DO  (I2C 0x61)
+    │         ├── Atlas EZO-ORP (I2C 0x62)
+    │         ├── Atlas EZO-pH  (I2C 0x63)
+    │         ├── Atlas EZO-EC  (I2C 0x64)
+    │         ├── VL53L0X mực nước (I2C 0x29)
+    │         ├── MS5837-30BA áp suất (I2C 0x76)
+    │         ├── SEN0189 turbidity → ADS1115 AIN0
+    │         ├── ADS1115 (I2C 0x48)
+    │         ├── OLED SH1106 (I2C 0x3C)
+    │         ├── DS18B20 ×3 (1-Wire GPIO8 + 4.7kΩ)
+    │         ├── YF-B10 cấp (GPIO14 pulse)
+    │         └── YF-B10 thải (GPIO26 pulse)
+    │
+    ├── K1–K4: [Contactor 9A] → Quạt sục khí 1.1kW ×4
+    ├── K5–K6: [Contactor 9A] → Root Blower 0.75kW ×2
+    ├── K0:    [Contactor 9A] → Bơm cấp nước 0.75HP
+    ├── K7–K8: Bơm thải + Bơm tuần hoàn
+    ├── K9–K10: Bơm vôi + Bơm khoáng (định lượng)
+    ├── K11:   Đèn UV 40W
+    ├── K12:   Bộ sưởi nước
+    ├── K13–K14: Đèn ao
+    ├── K20–K23: Máy cho ăn ×4
+    ├── K24–K27: Van xả + Bơm bùn + Van thải
+    ├── K28:   [Contactor] → Bơm dự phòng DP
+    └── K29:   Van O₂ bình khẩn cấp
 ```
 
 ---
 
-## 2.5 Logic pH — Bơm Vôi Tự Động
+## 2.3 Sơ Đồ Mermaid — Luồng Điều Khiển DO
 
-```
-Đọc EZO-pH (mỗi 60 giây)
-           │
-    pH < 6.8? ──YES──► Bật K9 (bơm vôi) trong T giây
-           │           T = (7.0 - pH_hiện_tại) × 30 giây / 0.1 pH
-           │           MQTT: "PH_THAP_BOM_VOI"
-           │ NO
-    pH > 8.5? ──YES──► Tắt K9 + MQTT alert: "PH_CAO"
-           │           (Không bơm vôi — cần xử lý thủ công)
-           │ NO
-    pH trong 7.0–8.2 ──► Tắt K9, trạng thái bình thường
-```
-
-**Giới hạn bơm vôi an toàn:**
-- Không bơm quá 5 phút liên tục / lần
-- Chờ 30 phút sau mỗi lần bơm trước khi đọc lại
-- Tổng không quá 20 phút / ngày (tránh pH tăng quá nhanh)
-- Nếu pH không tăng sau 2 lần bơm → MQTT alert "PH_KHONG_TANG"
-
----
-
-## 2.6 Lịch Cho Ăn Theo DO
-
-```
-Kiểm tra DO trước mỗi lần cho ăn (10 phút trước ca):
-  │
-  DO > 4.0 mg/L? ──YES──► Cho ăn bình thường (K20–K23 theo lịch)
-  │
-  DO = 3.0–4.0? ──YES──► Giảm 50% khẩu phần
-  │                       MQTT: "CHOUAN_GIAM_DO_THAP"
-  │
-  DO < 3.0 mg/L? ──YES──► BỎ CA CHO ĂN
-                           MQTT: "CHOUAN_BO_CA_DO_THAP"
-                           Ghi log ca bị bỏ
-```
-
-**Lịch cho ăn tôm thẻ chân trắng (6 lần/ngày):**
-
-| Ca | Giờ | Ghi chú |
-|:--:|:---:|---------|
-| 1 | 06:00 | Kiểm tra DO sáng sớm |
-| 2 | 09:00 | |
-| 3 | 12:00 | Kiểm tra DO giữa ngày |
-| 4 | 15:00 | |
-| 5 | 18:00 | Kiểm tra DO chiều |
-| 6 | 21:00 | Ca tối |
-
-**Lịch cho ăn cá tra (3 lần/ngày):**
-
-| Ca | Giờ | Ghi chú |
-|:--:|:---:|---------|
-| 1 | 07:00 | |
-| 2 | 12:00 | |
-| 3 | 17:00 | |
-
----
-
-## 2.7 Lịch Thay Nước Tự Động
-
-```
-Chu kỳ thay nước mặc định (cấu hình qua MQTT):
-  ┌─────────────────────────────────────────────────────┐
-  │ GIAI ĐOẠN 1 (ngày 1–30): Thay 10% mỗi 3 ngày      │
-  │ GIAI ĐOẠN 2 (ngày 31–60): Thay 15% mỗi 2 ngày     │
-  │ GIAI ĐOẠN 3 (ngày 61–100): Thay 20% mỗi ngày      │
-  └─────────────────────────────────────────────────────┘
-
-Thứ tự thực hiện thay nước:
-  1. Bật K8 (tuần hoàn) → chờ 5 phút
-  2. Mở K24/K25 (van xả đáy) → xả đến mực nước đích
-     (VL53L0X đo liên tục → đóng van khi đạt mức)
-  3. Đóng K24/K25 → Bật K0 (bơm cấp) đến mực cũ
-  4. Kiểm tra pH và EC sau khi cấp nước
-  5. Điều chỉnh nếu cần
-
-Điều kiện dừng thay nước khẩn cấp:
-  - DO đo được < 4.0 mg/L trong lúc xả → dừng ngay
-  - Mực nước < 50% ao → dừng, cảnh báo
-  - Thời gian xả > 60 phút → dừng, cảnh báo
+```mermaid
+graph TD
+    A[Đọc DO từ Atlas EZO-DO] --> B{DO mg/L}
+    B -->|"> 6.5"| C[Tắt bớt quạt<br/>Tiết kiệm điện]
+    B -->|"5.5–6.5"| D[Duy trì 2 quạt]
+    B -->|"5.0–5.5"| E[Bật 2 quạt<br/>Cảnh báo app]
+    B -->|"4.0–5.0"| F[Bật 4 quạt + 2 blower<br/>Alert NGUY_HIEM]
+    B -->|"3.0–4.0"| G[Bật tất cả + Bơm DP<br/>Alert KHAN_CAP]
+    B -->|"< 3.0"| H[Bật tất cả + Bơm DP<br/>Mở van O₂ bình<br/>🚨 BÁO ĐỘNG NGAY]
 ```
 
 ---
 
-## 2.8 Sơ Đồ Nguồn Điện
+## 2.4 Sơ Đồ Mermaid — Kiến Trúc Phần Cứng
 
-```
-220VAC (Lưới điện / Máy phát)
-          │
-   [ELCB 2P 30A 30mA]  ← Bắt buộc môi trường ao ẩm ướt
-          │
-   ┌──────┼──────────────────────────────────┐
-   │      │                                  │
-   ▼      ▼                                  ▼
-[CB 2P  [Mean Well         [Biến áp        [CB 1P ×nhiều]
- 20A]    HDR-60-5]          24VAC 100VA]    Quạt/Bơm/UV
-Bơm     5VDC/12A           24VAC            Phân vùng
-chính         │              │
-              ▼              ▼
-   [AMS1117 3.3V]      Van ao lắng
-         │ 3.3V         K16–K19 (24VAC)
-         │
-   ┌─────┴───────────────────┐
-   │ CB2S + MCP23017 ×2      │
-   │ Atlas EZO ×4            │
-   │ ADS1115, VL53L0X        │
-   │ MS5837, OLED SH1106     │
-   └─────────────────────────┘
+```mermaid
+graph LR
+    P[220VAC Lưới điện] --> E[ELCB 2P 16A]
+    E --> MW[Mean Well 5VDC]
+    E --> TX[Biến áp 24VAC]
+    E --> CB1[CB 1P quạt/blower]
+    E --> CB2[CB 1P bơm/UV]
+    E --> CB3[CB 1P cho ăn/van]
 
-Dòng tải AMS1117 3.3V (tối đa 800mA):
-  CB2S:          ~150 mA
-  MCP23017 ×2:   ~20 mA × 2 = 40 mA
-  Atlas EZO ×4:  ~50 mA × 4 = 200 mA
-  ADS1115:       ~1 mA
-  VL53L0X:       ~20 mA
-  MS5837:        ~1 mA
-  OLED SH1106:   ~20 mA
-  DS18B20 ×3:    ~5 mA × 3 = 15 mA
-  Dự phòng:      ~150 mA
-  TỔNG:          ~597 mA ✓ (< 800mA)
+    MW --> CBS[CB2S BK7231N]
+    MW --> AMS[AMS1117-3.3]
+    MW --> RL[Relay Board ×4]
 
-Lưu ý: DS18B20 cần điện trở pull-up 4.7kΩ lên 3.3V
+    AMS --> EZO[Atlas EZO<br/>DO/pH/EC/ORP]
+    AMS --> VLX[VL53L0X<br/>Mực nước]
+    AMS --> MS5[MS5837<br/>Áp suất]
+    AMS --> ADS[ADS1115<br/>Turbidity]
+    AMS --> OLED[OLED SH1106]
+    AMS --> DS18[DS18B20 ×3<br/>Nhiệt độ]
+
+    CBS -->|I2C| MCP1[MCP23017 #1<br/>K0–K15]
+    CBS -->|I2C| MCP2[MCP23017 #2<br/>K16–K31]
+    CBS -->|I2C| EZO
+    CBS -->|I2C| VLX
+    CBS -->|GPIO8| DS18
+    CBS -->|GPIO14/26| FM[YF-B10<br/>Flow meter ×2]
+
+    MCP1 --> RL
+    MCP2 --> RL
+
+    TX --> VAN[Van ao lắng 24VAC ×4]
+    CB1 --> CON[Contactor ×6]
+    CON --> QT[Quạt ×4 + Blower ×2]
+    CB2 --> BOM[Bơm cấp/thải/hóa chất]
+    CB3 --> CHOAN[Máy cho ăn ×4]
+    RL --> VAN
+    RL --> O2[Van O₂ khẩn cấp]
 ```
 
 ---
 
-## 2.9 Màn Hình OLED SH1106 128×64
+## 2.5 Sơ Đồ Mermaid — Cảnh Báo LCD + App
 
-### Bố Cục Hiển Thị Bình Thường
+```mermaid
+graph TD
+    CB[CB2S đọc cảm biến<br/>mỗi 15 giây] --> CHK{Kiểm tra<br/>ngưỡng}
 
+    CHK -->|DO < 3.0| KHAN[🚨 KHẨN CẤP<br/>LCD đỏ nhấp nhánh<br/>MQTT alert/DO khan_cap<br/>Bật tất cả + O₂]
+
+    CHK -->|DO 3.0–4.0| NGUY[🔴 NGUY HIỂM<br/>LCD vàng nhấp nhánh<br/>MQTT alert/DO nguy_hiem<br/>Bật tất cả quạt+blower]
+
+    CHK -->|DO 4.0–5.0| CANH[⚠️ CẢNH BÁO<br/>LCD hiện dấu ⚠<br/>MQTT alert/DO canh_bao<br/>Bật 2 quạt]
+
+    CHK -->|pH < 7.5| PH[⚠️ pH THẤP<br/>Bơm vôi 30s<br/>MQTT alert/pH]
+
+    CHK -->|ORP < 150| ORP[🔴 ORP THẤP<br/>Nguy hiểm H₂S<br/>MQTT alert/ORP]
+
+    CHK -->|Tất cả OK| OK[✅ LCD hiện<br/>DO/pH/EC/Nhiệt độ<br/>bình thường]
+
+    KHAN -->|Gửi| APP[📱 Điện Thoại<br/>NextFarm App<br/>broker.hosco.com.vn]
+    NGUY --> APP
+    CANH --> APP
+    PH --> APP
+    ORP --> APP
 ```
-┌────────────────────────┐
-│ DO:6.8 pH:7.5 T:28.3C │  ← Dòng 1: Thông số chính
-│ EC:15ms ORP:320mV     │  ← Dòng 2: Độ mặn + ORP
-│ Quat:2 Bom:ON UV:ON   │  ← Dòng 3: Thiết bị đang chạy
-│ ChoAn:09:00 Nc:72cm   │  ← Dòng 4: Ca ăn tiếp theo + mực nước
-└────────────────────────┘
-```
-
-### Hiển Thị Khi Cảnh Báo
-
-```
-┌────────────────────────┐
-│ !!! CANH BAO !!!      │
-│ DO THAP: 3.2 mg/L     │
-│ Bat 4 quat suc khi    │
-│ Kiem tra: 14:25:33    │
-└────────────────────────┘
-```
-
-### Cảnh Báo 3 Mức Qua MQTT
-
-| Mức | Điều kiện | MQTT Topic | Hành động |
-|:---:|-----------|-----------|-----------|
-| INFO | pH 6.8–7.0 hoặc DO 4.5–5.0 | `.../alert/info` | Ghi log |
-| WARNING | DO 3.0–4.0 hoặc pH < 6.8 | `.../alert/warning` | Push notification |
-| CRITICAL | DO < 2.0 hoặc pH < 6.5 | `.../alert/critical` | SMS + còi + tất cả quạt |
 
 ---
 
-## 2.10 Cấu Trúc Firmware (Tóm Tắt)
+## 2.6 Sơ Đồ Nguồn Điện
 
-```cpp
-// Vòng lặp chính (loop period = 1 giây)
-void loop() {
-  // === ĐỌC CẢM BIẾN (chu kỳ khác nhau) ===
-  if (millis() - lastDO   >= 30000) readEZO_DO();    // 30 giây
-  if (millis() - lastPH   >= 60000) readEZO_pH();    // 60 giây
-  if (millis() - lastEC   >= 60000) readEZO_EC();    // 60 giây
-  if (millis() - lastORP  >= 60000) readEZO_ORP();   // 60 giây
-  if (millis() - lastTemp >= 15000) readDS18B20();   // 15 giây
-  if (millis() - lastFlow >= 1000)  readFlowMeters();// 1 giây
-  if (millis() - lastLevel>= 5000)  readVL53L0X();   // 5 giây
-  if (millis() - lastTurb >= 10000) readTurbidity(); // 10 giây
-  if (millis() - lastPres >= 30000) readMS5837();    // 30 giây
-
-  // === LOGIC ĐIỀU KHIỂN ===
-  controlDO_6level();    // Logic 6 cấp DO
-  controlPH_lime();      // Bơm vôi tự động
-  controlEC_salinity();  // Cảnh báo độ mặn
-  controlORP();          // Cảnh báo ORP
-  controlFeeding();      // Lịch cho ăn
-  controlWaterChange();  // Lịch thay nước
-  controlUV();           // UV theo lịch
-
-  // === XUẤT MQTT + OLED ===
-  if (millis() - lastMQTT >= 10000) publishSensorData();
-  if (millis() - lastOLED >= 2000)  updateOLED();
-  if (millis() - lastAlert > 0)     checkAndSendAlerts();
-}
 ```
+                    220VAC (Lưới điện)
+                         │
+              ┌──────────┴──────────┐
+              │   Aptomat 2P 16A    │
+              │   ELCB 30mA         │ ← BẮT BUỘC
+              └──────────┬──────────┘
+                         │
+    ┌────────────────────┼────────────────────────┐
+    │                    │                        │
+    ▼                    ▼                        ▼
+[CB 1P 20A]     [Mean Well HDR-60-5]      [Biến áp 24VAC]
+Quạt + Blower    5VDC / 12A DIN rail       50VA Xuyến
+    │                    │                     │
+    ▼                    ├→ CB2S (3.3V reg)  24VAC → Van K16–K19
+[Contactor ×6]           ├→ MCP23017 ×2
+Quạt 1.1kW ×4            ├→ Relay coil ×32
+Blower 0.75kW ×2         └→ AMS1117-3.3 → 3.3V
+                                               │
+[CB 1P 10A]                              Cảm biến:
+Bơm + UV                                 Atlas EZO ×4
+Đèn + Sưởi                               VL53L0X
+    │                                    MS5837-30BA
+    ▼                                    SEN0189
+ K7–K12                                  DS18B20 ×3
+                                         ADS1115
+[CB 1P 6A]                               OLED SH1106
+Cho ăn K20–K23
+Van xả K24–K27
+    │
+    ▼
+ K20–K29
+
+[CB 1P 6A]  ← Nguồn DC + 24VAC (điều khiển)
+```
+
+---
+
+## 2.7 Logic Tự Động — Tóm Tắt
+
+### DO — Ưu Tiên Tuyệt Đối
+
+| DO (mg/L) | Quạt | Blower | Bơm DP | Van O₂ | LCD | App |
+|:---------:|:----:|:------:|:------:|:------:|-----|-----|
+| > 6.5 | 2 (tiết kiệm) | OFF | OFF | OFF | Xanh | — |
+| 5.5–6.5 | 2 | OFF | OFF | OFF | Bình thường | — |
+| 5.0–5.5 | 2 | OFF | OFF | OFF | ⚠️ | Thông báo |
+| 4.0–5.0 | 4 | 2 | OFF | OFF | 🔴 nhấp nháy | Cảnh báo |
+| 3.0–4.0 | 4 | 2 | ON | OFF | 🔴 nhấp nháy | Khẩn cấp |
+| < 3.0 | 4 | 2 | ON | **ON** | 🚨 đỏ toàn màn | **BÁO ĐỘNG** |
+
+### pH — Tự Động Bơm Vôi
+
+```
+pH < 7.5 → Bơm vôi 30 giây → Chờ 2 giờ → Đo lại
+pH > 8.5 → Cảnh báo + Tăng thay nước
+pH < 7.0 → Khẩn cấp + Báo app ngay
+```
+
+### Cho Ăn — Kiểm Tra DO Trước
+
+```
+Đến giờ ăn → Kiểm tra DO
+  DO ≥ 4.0 → Chạy máy cho ăn
+  DO < 4.0 → BỎ QUA (tôm/cá không ăn khi thiếu oxy)
+           → Ghi log + báo app "BO_QUA_DO_THAP"
+```
+
+---
+
+*[← Tổng Quan](01_tong-quan.md) | [Phần Cứng →](03_phan-cung.md)*
